@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Default configuration for @playwright/desktop-agent",
+
+  "pollIntervalMs": 500,
+  "approvalTimeoutMs": 30000,
+
+  "detectionRetry": {
+    "maxAttempts": 5,
+    "baseDelayMs": 200,
+    "maxDelayMs": 5000,
+    "backoff": "exponential",
+    "jitter": 0.2
+  },
+
+  "actionRetry": {
+    "maxAttempts": 3,
+    "baseDelayMs": 300,
+    "maxDelayMs": 3000,
+    "backoff": "linear",
+    "jitter": 0.1
+  },
+
+  "patterns": {
+    "windowTitles": [
+      "Okta Verify",
+      "Okta FastPass",
+      "Sign In - Okta",
+      "Verify Your Identity"
+    ],
+    "processNames": [
+      "OktaVerify",
+      "Okta Verify"
+    ],
+    "windowClassNames": [
+      "OktaVerifyWindow"
+    ],
+    "fuzzyThreshold": 0.6
+  },
+
+  "windowDefaults": {
+    "moveOffScreen": true,
+    "restoreIfMinimized": true,
+    "bringToFront": true,
+    "restorePosition": true
+  },
+
+  "logLevel": "info"
+}
