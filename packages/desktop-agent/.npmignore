@@ -1,0 +1,9 @@
+src/
+lib/
+tsconfig.json
+tsconfig.build.json
+.npmignore
+*.spec.ts
+*.test.ts
+node_modules/
+.github/

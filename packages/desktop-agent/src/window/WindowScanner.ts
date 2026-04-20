@@ -60,9 +60,9 @@ public class Win32Window {
 
             list.Add(new {
                 Handle    = (long)hWnd,
-                Title     = System.Text.RegularExpressions.Regex.Replace(title, @"[\x00-\x1F\x7F]", ""),
+                Title     = System.Text.RegularExpressions.Regex.Replace(title, @"[\\x00-\\x1F\\x7F]", ""),
                 ProcessId = (int)pid,
-                ClassName = cls.ToString(),
+                ClassName = System.Text.RegularExpressions.Regex.Replace(cls.ToString(), @"[\\x00-\\x1F\\x7F]", ""),
                 X         = rect.Left,
                 Y         = rect.Top,
                 Width     = rect.Right - rect.Left,
@@ -92,7 +92,23 @@ public class Win32Window {
       const raw = await this._ps(script);
       if (!raw) return [];
 
-      const parsed = JSON.parse(raw.startsWith('[') ? raw : `[${raw}]`);
+      const rawPayload = raw.startsWith('[') ? raw : `[${raw}]`;
+      const sanitized = this._sanitizeJson(raw);
+      const payload = sanitized.startsWith('[') ? sanitized : `[${sanitized}]`;
+      this._logPayload('WindowScanner', rawPayload, 'raw');
+      if (payload !== rawPayload)
+        this._logPayload('WindowScanner', payload, 'sanitized');
+
+      let parsed: any[];
+      try {
+        parsed = JSON.parse(payload);
+      } catch (e) {
+        this._logPayload('WindowScanner', rawPayload, 'raw', true);
+        if (payload !== rawPayload)
+          this._logPayload('WindowScanner', payload, 'sanitized', true);
+        throw e;
+      }
+
       return (parsed as any[]).map(w => this._toWindowInfo(w));
     } catch (e) {
       this._log.warn('WindowScanner', 'Failed to enumerate windows', { error: String(e) });
@@ -117,6 +133,20 @@ public class Win32Window {
       isVisible: true,
       isMinimized: raw.Minimized ?? false,
     };
+  }
+
+  private _sanitizeJson(raw: string): string {
+    return raw.replace(/[\u0000-\u001F\u007F]/g, '');
+  }
+
+  private _logPayload(scope: string, payload: string, variant: 'raw' | 'sanitized', failed = false): void {
+    const preview = payload.slice(0, 2000);
+    this._log.warn(scope, failed ? `${variant} payload on parse failure` : `${variant} payload preview`, {
+      length: payload.length,
+      escaped: JSON.stringify(preview),
+      hex: Buffer.from(preview, 'utf8').toString('hex'),
+      truncated: payload.length > preview.length,
+    });
   }
 
   private _ps(script: string): Promise<string> {

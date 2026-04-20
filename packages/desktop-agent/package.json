@@ -1,0 +1,70 @@
+{
+  "name": "@anthropic-desktop/playwright-desktop-actions",
+  "version": "0.1.1",
+  "description": "Desktop automation agent for Playwright — handles Okta Verify FastPass and other native auth flows",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config/ConfigManager.d.ts",
+      "require": "./dist/config/ConfigManager.js",
+      "default": "./dist/config/ConfigManager.js"
+    }
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Hemanth-7026/playwright.git",
+    "directory": "packages/desktop-agent"
+  },
+  "keywords": [
+    "playwright",
+    "desktop",
+    "automation",
+    "okta",
+    "fastpass",
+    "windows",
+    "native-auth"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "watch": "tsc -p tsconfig.build.json --watch",
+    "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
+    "prepublishOnly": "npm run clean && npm run build",
+    "prepack": "npm run build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": ">=18",
+    "typescript": "^5.3.0"
+  },
+  "peerDependencies": {
+    "playwright": ">=1.40.0-0",
+    "playwright-core": ">=1.40.0-0"
+  },
+  "peerDependenciesMeta": {
+    "playwright": {
+      "optional": true
+    },
+    "playwright-core": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "win32"
+  ],
+  "files": [
+    "dist/",
+    "config/",
+    "README.md",
+    "LICENSE"
+  ]
+}

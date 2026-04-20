@@ -41,6 +41,8 @@ export class AccessibilityStrategy implements DetectionStrategy {
     try {
       const script = `
 Add-Type -AssemblyName UIAutomationClient
+$textType = [System.Windows.Automation.ControlType]::Text
+$buttonType = [System.Windows.Automation.ControlType]::Button
 $root = [System.Windows.Automation.AutomationElement]::RootElement
 $condition = New-Object System.Windows.Automation.PropertyCondition(
   [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
@@ -51,12 +53,29 @@ $results = @()
 foreach ($w in $windows) {
   $name = $w.Current.Name
   if ($name) {
-    $safeName = [System.Text.RegularExpressions.Regex]::Replace($name, '[\x00-\x1f\x7f]', '')
+    $safeName = [System.Text.RegularExpressions.Regex]::Replace($name, '[\\x00-\\x1f\\x7f]', '')
+    $safeClassName = [System.Text.RegularExpressions.Regex]::Replace($w.Current.ClassName, '[\\x00-\\x1f\\x7f]', '')
+    $descendantNames = New-Object System.Collections.Generic.List[string]
+    $descendants = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+    foreach ($child in $descendants) {
+      try {
+        $controlType = $child.Current.ControlType
+        if ($controlType -ne $textType -and $controlType -ne $buttonType) {
+          continue
+        }
+        $childName = [System.Text.RegularExpressions.Regex]::Replace($child.Current.Name, '[\\x00-\\x1f\\x7f]', '')
+        if (-not [string]::IsNullOrWhiteSpace($childName) -and -not $descendantNames.Contains($childName)) {
+          $descendantNames.Add($childName)
+        }
+      } catch {
+      }
+    }
     $results += [PSCustomObject]@{
-      Name      = $safeName
-      ProcessId = $w.Current.ProcessId
-      ClassName = $w.Current.ClassName
-      Handle    = $w.Current.NativeWindowHandle
+      Name            = $safeName
+      ProcessId       = $w.Current.ProcessId
+      ClassName       = $safeClassName
+      Handle          = $w.Current.NativeWindowHandle
+      DescendantNames = @($descendantNames)
     }
   }
 }
@@ -66,19 +85,33 @@ $results | ConvertTo-Json -Compress`;
       if (!raw)
         return { detected: false, strategyName: this.name, confidence: 0, timestamp: Date.now() };
 
-      const elements = JSON.parse(raw.startsWith('[') ? raw : `[${raw}]`) as any[];
+      const rawPayload = raw.startsWith('[') ? raw : `[${raw}]`;
+      const sanitized = this._sanitizeJson(raw);
+      const payload = sanitized.startsWith('[') ? sanitized : `[${sanitized}]`;
+      this._logPayload('Accessibility', rawPayload, 'raw');
+      if (payload !== rawPayload)
+        this._logPayload('Accessibility', payload, 'sanitized');
+
+      let elements: any[];
+      try {
+        elements = JSON.parse(payload) as any[];
+      } catch (e) {
+        this._logPayload('Accessibility', rawPayload, 'raw', true);
+        if (payload !== rawPayload)
+          this._logPayload('Accessibility', payload, 'sanitized', true);
+        throw e;
+      }
 
       for (const el of elements) {
-        const titleMatch = matchesAny(
-            el.Name ?? '',
-            this._patterns.windowTitles,
-            this._patterns.fuzzyThreshold,
-        );
+        const candidates = [el.Name ?? '', ...((el.DescendantNames as string[] | undefined) ?? [])]
+            .filter(Boolean);
+        const bestMatch = this._bestMatch(candidates);
 
-        if (titleMatch.matched) {
+        if (bestMatch.matched) {
+          const matchedText = bestMatch.value;
           const windowInfo: WindowInfo = {
             handle: el.Handle ?? 0,
-            title: el.Name ?? '',
+            title: matchedText,
             processId: el.ProcessId ?? 0,
             processName: '',
             className: el.ClassName ?? '',
@@ -87,13 +120,20 @@ $results | ConvertTo-Json -Compress`;
             isMinimized: false,
           };
 
-          this._log.info('Accessibility', `UIA matched: "${el.Name}" (score ${titleMatch.bestScore.toFixed(2)})`);
+          this._log.info('Accessibility', `UIA matched: "${matchedText}" (score ${bestMatch.bestScore.toFixed(2)})`, {
+            ownerWindow: el.Name ?? '',
+          });
           return {
             detected: true,
             strategyName: this.name,
-            confidence: titleMatch.bestScore,
+            confidence: bestMatch.bestScore,
             window: windowInfo,
-            metadata: { matchedPattern: titleMatch.bestPattern, className: el.ClassName },
+            metadata: {
+              matchedPattern: bestMatch.bestPattern,
+              matchedText,
+              ownerWindowTitle: el.Name ?? '',
+              className: el.ClassName,
+            },
             timestamp: Date.now(),
           };
         }
@@ -107,6 +147,46 @@ $results | ConvertTo-Json -Compress`;
 
   updatePatterns(patterns: DetectionPatternConfig): void {
     this._patterns = patterns;
+  }
+
+  private _bestMatch(candidates: string[]): { matched: boolean; bestScore: number; bestPattern: string; value: string } {
+    let bestScore = 0;
+    let bestPattern = '';
+    let bestValue = '';
+
+    for (const candidate of candidates) {
+      const match = matchesAny(
+          candidate,
+          this._patterns.windowTitles,
+          this._patterns.fuzzyThreshold,
+      );
+      if (match.bestScore > bestScore) {
+        bestScore = match.bestScore;
+        bestPattern = match.bestPattern;
+        bestValue = candidate;
+      }
+    }
+
+    return {
+      matched: bestScore >= this._patterns.fuzzyThreshold,
+      bestScore,
+      bestPattern,
+      value: bestValue,
+    };
+  }
+
+  private _sanitizeJson(raw: string): string {
+    return raw.replace(/[\u0000-\u001F\u007F]/g, '');
+  }
+
+  private _logPayload(scope: string, payload: string, variant: 'raw' | 'sanitized', failed = false): void {
+    const preview = payload.slice(0, 2000);
+    this._log.warn(scope, failed ? `${variant} payload on parse failure` : `${variant} payload preview`, {
+      length: payload.length,
+      escaped: JSON.stringify(preview),
+      hex: Buffer.from(preview, 'utf8').toString('hex'),
+      truncated: payload.length > preview.length,
+    });
   }
 
   private _ps(script: string): Promise<string> {
